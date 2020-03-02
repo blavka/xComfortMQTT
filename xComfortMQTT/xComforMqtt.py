@@ -41,7 +41,8 @@ class xComforMqtt:
         self._mqtt.on_message = self._on_mqtt_message
 
         self._mqtt.message_callback_add(self._prefix + '+/+/value/set', self._value_set)
-        self._mqtt.message_callback_add(self._prefix + '+/+/value/get', self._value_get)
+        self._mqtt.message_callback_add(self._prefix + '+/+/state/set', self._value_set)
+        self._mqtt.message_callback_add(self._prefix + '+/+/+/get', self._get)
 
         logging.info('MQTT broker host: %s, port: %d, use tls: %s',
                      config['mqtt']['host'],
@@ -64,7 +65,7 @@ class xComforMqtt:
             logging.error('Connection refused from reason: %s', lut.get(rc, 'unknown code'))
 
         if rc == paho.mqtt.client.CONNACK_ACCEPTED:
-            for topic in ('+/+/value/set', '+/+/value/get'):
+            for topic in ('+/+/value/set', '+/+/state/set', '+/+/+/get'):
                 topic = self._prefix + topic
                 logging.debug('Subscribe: %s', topic)
                 client.subscribe(topic)
@@ -77,10 +78,9 @@ class xComforMqtt:
 
     def _value_set(self, client, userdata, message):
         logging.debug('_value_set %s %s', message.topic, message.payload)
-        device_topic = message.topic[:-10]
-        device = self._subs.get(device_topic, None)
+        device = self._subs.get(message.topic[:-4], None)
         if not device:
-            self._mqtt.publish(device_topic + '/error', 'unknown device')
+            self._mqtt.publish(message.topic[:-10] + '/error', 'unknown device')
             return
 
         try:
@@ -90,18 +90,22 @@ class xComforMqtt:
 
         if device['type'] == 'LightActuator' or device['type'] == 'SwitchActuator':
             if value not in device['operations']:
-                value = 'on' if value else 'off'
+                set_value = bool(value)
+                value = 'on' if set_value else 'off'
+
         elif device['type'] == 'DimActuator':
             if isinstance(value, bool):
-                value = 100 if value else 0
+                self._mqtt.publish(message.topic[:-10] + '/error', 'device unsupported set %s use int' % value)
+                return
             else:
                 value = int(value)
                 if value < 0:
                     value = 0
                 elif value > 100:
                     value = 100
+            set_value = value
         else:
-            self._mqtt.publish(device_topic + '/error', 'device unsupported set value')
+            self._mqtt.publish(message.topic[:-10] + '/error', 'device unsupported set value')
             return
 
         resp = self._shc.control_device(device['zone_ids'][0], device['id'], value)
@@ -109,21 +113,21 @@ class xComforMqtt:
             if value == 'toggle':
                 return
 
-            value = value == 'on'
-            device['value'] = value
+            device['value'] = set_value
 
+            payload = json.dumps(device['value'])
             for topic in device['topics']:
-                self._mqtt.publish(topic + '/value', json.dumps(device['value']))
+                self._mqtt.publish(topic, payload)
 
-    def _value_get(self, client, userdata, message):
+    def _get(self, client, userdata, message):
         logging.debug('_value_get %s %s', message.topic, message.payload)
-        device_topic = message.topic[:-10]
+        device_topic = message.topic[:-4]
         device = self._subs.get(device_topic, None)
         if not device:
-            self._mqtt.publish(device_topic + '/error', 'unknown device')
+            self._mqtt.publish(device_topic + '/error', 'unknown device or value')
             return
 
-        self._mqtt.publish(device_topic + '/value', json.dumps(device['value']))
+        self._mqtt.publish(device_topic, json.dumps(device['value']))
 
     def start(self):
         self._zones_load()
@@ -148,8 +152,9 @@ class xComforMqtt:
 
                 if udevice['value'] != device['value']:
                     device['value'] = udevice['value']
+                    payload = json.dumps(device['value'])
                     for topic in device['topics']:
-                        self._mqtt.publish(topic + '/value', json.dumps(device['value']))
+                        self._mqtt.publish(topic, payload)
 
     def _zones_load(self):
         self._devices = {}
@@ -174,6 +179,19 @@ class xComforMqtt:
 
                 device_topic = self._prefix + zone['zoneName'] + '/' + device['name']
                 device_topic = re.sub(r'[\s+#-]+', '-', device_topic).strip()
+
+                if device['type'] == 'LightActuator' or device['type'] == 'SwitchActuator':
+                    device_topic += '/state'
+                elif device['type'] == 'DimActuator':
+                    device_topic += '/value'
+                elif device['type'] == 'TemperatureSensor':
+                    device_topic = re.sub(r'-?\(temperature\)', '', device_topic) + '/temperature'
+                elif device['type'] == 'HumiditySensor':
+                    device_topic = re.sub(r'-?\(humidity\)', '', device_topic) + '/humidity'
+                elif device['type'] == 'ValveSensor':
+                    device_topic = re.sub(r'-?\(position\)', '', device_topic) + '/position'
+                else:
+                    device_topic += '/value'
 
                 device['topics'].append(device_topic)
                 device['value'] = None
