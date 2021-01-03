@@ -130,7 +130,7 @@ class xComforMqtt:
         self._mqtt.publish(device_topic, json.dumps(device['value']))
 
     def start(self):
-        self._zones_load()
+        self._load_zones()
 
         while True:
             self._update()
@@ -156,11 +156,13 @@ class xComforMqtt:
                     for topic in device['topics']:
                         self._mqtt.publish(topic, payload)
 
-    def _zones_load(self):
+    def _load_zones(self):
+        logging.debug("Load Zones")
         self._devices = {}
         self._zones = {}
 
         for zone in self._shc.get_zones():
+            logging.debug("Load device for zone \"%s\" param: %s", zone['zoneId'], zone)
             zone_devices = self._shc.get_devices(zone['zoneId'])
             zone['devices'] = {}
             zone['zoneName'] = zone['zoneName'].strip()

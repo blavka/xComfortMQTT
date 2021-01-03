@@ -60,7 +60,9 @@ class SHC_Client():
                 "http://" + self._host + "/remote/json-rpc", json=payload)
 
         if response.status_code == 200:
-            return response.json()['result']
+            payload = response.json()
+            logging.debug("Response: %s", payload)
+            return payload.get('result', [])
 
         raise xComfortApiException('RPC erron %s' % response.status_code)
 
