@@ -95,10 +95,16 @@ class xComforMqtt:
 
         elif device['type'] == 'DimActuator':
             if isinstance(value, bool):
-                self._mqtt.publish(message.topic[:-10] + '/error', 'device unsupported set %s use int' % value)
-                return
+                value = device['on_value'] if value else 0
+            elif isinstance(value, str) and value == 'toggle':
+                value = 0 if device['value'] else device['on_value']
             else:
-                value = int(value)
+                try:
+                    value = int(value)
+                except Exception as e:
+                    logging.error(e)
+                    return
+
                 if value < 0:
                     value = 0
                 elif value > 100:
@@ -145,6 +151,8 @@ class xComforMqtt:
                     udevice['value'] = None
                 elif device['type'] == 'DimActuator':
                     udevice['value'] = int(udevice['value'])
+                    if udevice['value'] > 0:
+                        device['on_value'] =  udevice['value']
                 elif udevice['type'] == 'LightActuator' or udevice['type'] == 'SwitchActuator':
                     udevice['value'] = True if udevice['value'] == 'ON' else False
                 else:
@@ -186,6 +194,7 @@ class xComforMqtt:
                     device_topic += '/state'
                 elif device['type'] == 'DimActuator':
                     device_topic += '/value'
+                    device['on_value'] = 100
                 elif device['type'] == 'TemperatureSensor':
                     device_topic = re.sub(r'-?\(temperature\)', '', device_topic) + '/temperature'
                 elif device['type'] == 'HumiditySensor':
