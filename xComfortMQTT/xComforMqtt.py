@@ -152,7 +152,7 @@ class xComforMqtt:
                 elif device['type'] == 'DimActuator':
                     udevice['value'] = int(udevice['value'])
                     if udevice['value'] > 0:
-                        device['on_value'] =  udevice['value']
+                        device['on_value'] = udevice['value']
                 elif udevice['type'] == 'LightActuator' or udevice['type'] == 'SwitchActuator':
                     udevice['value'] = True if udevice['value'] == 'ON' else False
                 else:
